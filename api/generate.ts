@@ -1,11 +1,8 @@
-/**
- * Vercel Serverless Function 
- */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { GoogleGenAI } from "@google/genai";
+// 1. CAMBIAMOS LA LIBRERÍA A LA OFICIAL
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Solo aceptar POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -21,31 +18,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: "Missing imageDataUrl or prompt" });
   }
 
-  // Parsear el data URL
   const match = imageDataUrl.match(/^data:(image\/\w+);base64,(.*)$/);
   if (!match) {
     return res.status(400).json({ error: "Invalid imageDataUrl format" });
   }
   const [, mimeType, base64Data] = match;
 
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  // 2. NUEVA FORMA DE INICIALIZAR
+  const genAI = new GoogleGenerativeAI(API_KEY);
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const maxRetries = 3;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: {
-          parts: [
-            { inlineData: { mimeType, data: base64Data } },
-            { text: prompt },
-          ],
-        },
-      });
-
-      const imagePart = response.candidates?.[0]?.content?.parts?.find(
+      // 3. NUEVA SINTAXIS DE LLAMADA
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType, data: base64Data } },
+      ]);
+      
+      const response = await result.response;
+      const candidates = response.candidates;
+      const imagePart = candidates?.[0]?.content?.parts?.find(
         (p) => p.inlineData
       );
 
@@ -56,17 +52,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Gemini respondió con texto en vez de imagen
       return res.status(422).json({
         error: "no_image",
-        text: response.text ?? "No response",
+        text: response.text() || "No response",
       });
     } catch (err) {
       lastError = err;
-      const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      const isInternal = msg.includes('"code":500') || msg.includes("INTERNAL");
-
-      if (isInternal && attempt < maxRetries) {
+      // Lógica de reintentos simplificada para el error 500
+      if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
         continue;
       }
@@ -74,7 +67,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  const errMsg =
-    lastError instanceof Error ? lastError.message : String(lastError);
+  const errMsg = lastError instanceof Error ? lastError.message : String(lastError);
   return res.status(500).json({ error: errMsg });
 }
