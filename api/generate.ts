@@ -24,9 +24,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const [, mimeType, base64Data] = match;
 
-  // 2. NUEVA FORMA DE INICIALIZAR
-  const genAI = new GoogleGenerativeAI(API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  // 1. Inicializamos la conexión
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+  // 2. Configuramos el modelo forzando la versión estable (v1)
+  const model = genAI.getGenerativeModel(
+    { model: "gemini-1.5-flash" },
+    { apiVersion: 'v1' } 
+  );
 
   const maxRetries = 3;
   let lastError: unknown;
